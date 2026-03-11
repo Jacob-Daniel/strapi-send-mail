@@ -1,0 +1,172 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+############################
+# OS X
+############################
+
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+.Spotlight-V100
+.Trashes
+._*
+
+
+############################
+# Linux
+############################
+
+*~
+
+
+############################
+# Windows
+############################
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+
+
+############################
+# Packages
+############################
+
+*.7z
+*.dat
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.seed
+*.so
+*.swo
+*.swp
+*.swn
+*.swm
+*.out
+*.pid
+
+
+############################
+# Logs and databases
+############################
+
+.tmp
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+
+
+############################
+# Misc.
+############################
+
+*#
+ssl
+.idea
+nbproject
+.tsbuildinfo
+.eslintcache
+
+
+############################
+# Environment
+############################
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+
+############################
+# Strapi
+############################
+
+public/uploads/*
+!public/uploads/.gitkeep
+
+
+############################
+# Build
+############################
+
+# dist is intentionally NOT ignored — npm publish requires it
+# If you want a clean repo, add dist to .npmignore instead
+build
+
+
+############################
+# Node.js
+############################
+
+lib-cov
+lcov.info
+pids
+logs
+results
+node_modules
+.node_history
+
+
+############################
+# Package managers
+############################
+
+.yarn/*
+!.yarn/cache
+!.yarn/unplugged
+!.yarn/patches
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+yarn-error.log
+package-lock.json
+
+
+############################
+# Tests
+############################
+
+coverage
+*.test.ts.snap
+
+
+############################
+# TypeScript
+############################
+
+*.tsbuildinfo
+
+
+############################
+# Editor
+############################
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
