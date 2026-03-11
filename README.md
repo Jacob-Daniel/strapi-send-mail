@@ -28,16 +28,18 @@ A [Strapi v5](https://strapi.io) plugin for sending batch emails to subscriber g
 
 ## Installation
 
+Clone or download the plugin into your Strapi project:
 ```bash
-npm install strapi-plugin-send-mail
+git clone https://github.com/Jacob-Daniel/strapi-send-mail.git src/plugins/send-mail
 ```
 
-Then enable the plugin in `config/plugins.ts`:
-
+Then register it in your Strapi config:
 ```ts
+// config/plugins.ts
 export default {
   'send-mail': {
     enabled: true,
+    resolve: './src/plugins/send-mail',
   },
 };
 ```
