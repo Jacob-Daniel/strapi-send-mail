@@ -53,10 +53,6 @@
     "test:ts:front": "run -T tsc -p admin/tsconfig.json",
     "test:ts:back": "run -T tsc -p server/tsconfig.json"
   },
-  "dependencies": {
-    "build": "^0.1.4",
-    "strapi-plugin": "link:node_modules/.bin/strapi-plugin"
-  },
   "devDependencies": {
     "@strapi/design-system": "^2.0.0-rc.30",
     "@strapi/icons": "^2.0.0-rc.30",
@@ -89,9 +85,5 @@
     "name": "send-mail",
     "displayName": "Send Mail",
     "description": "Send batch emails to subscriber groups using email templates."
-  },
-  "name": "send-mail",
-  "description": "Newsletters",
-  "license": "MIT",
-  "author": "JacobDaniel <jacob@jacobdaniel.co.uk>"
+  }
 }

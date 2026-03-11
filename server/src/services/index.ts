@@ -1,5 +1,8 @@
-import service from "./service";
+import type { Core } from '@strapi/strapi';
+import service from './service';
 
-export default {
-  service,
+const services: Record<string, Core.Service> = {
+  service: service as unknown as Core.Service,
 };
+
+export default services;

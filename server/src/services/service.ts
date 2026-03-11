@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import renderBlocksToHtml from './renderHtml';
 
-const service = ({ strapi }: { strapi: Core.Strapi }) => ({
+const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: any[]) => any> => ({
   async getGroups() {
     return strapi.documents('api::subscriber-group.subscriber-group').findMany({
       fields: ['documentId', 'name'],

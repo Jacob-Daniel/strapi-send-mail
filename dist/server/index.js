@@ -1,5 +1,4 @@
 "use strict";
-Object.defineProperties(exports, { __esModule: { value: true }, [Symbol.toStringTag]: { value: "Module" } });
 const bootstrap = ({ strapi }) => {
 };
 const destroy = ({ strapi }) => {
@@ -209,4 +208,4 @@ const index = {
   policies,
   middlewares
 };
-exports.default = index;
+module.exports = index;
