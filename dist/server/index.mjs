@@ -145,10 +145,10 @@ function renderBlocksToHtml(blocks, bannerUrl, unsubscribeUrl) {
 </head>
 <body style="margin:0; padding:0; background-color:#f2f4f3; font-family:Arial, sans-serif;">
 
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f2f4f3; padding:32px 16px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f2f4f3; padding:20px 10px;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <table width="900" cellpadding="0" cellspacing="0" style="max-width:900px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
           ${bannerUrl ? `
           <!-- Banner -->
