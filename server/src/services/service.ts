@@ -3,14 +3,16 @@ import renderBlocksToHtml from './renderHtml';
 
 const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: any[]) => any> => ({
   async getGroups() {
-    return strapi.documents('api::subscriber-group.subscriber-group').findMany({
-      fields: ['documentId', 'name'],
+    const groups = await strapi.documents('api::subscriber-group.subscriber-group').findMany({
+      fields: ['name'],
     });
+    // strapi.log.info(`[send-mail] Groups found: ${JSON.stringify(groups)}`);
+    return groups;
   },
 
   async getTemplates() {
     return strapi.documents('api::email-template.email-template').findMany({
-      fields: ['documentId', 'name', 'subject'],
+      fields: ['name', 'subject'],
     });
   },
 
@@ -19,10 +21,10 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
 
     const template = await strapi
       .documents('api::email-template.email-template')
-      .findOne({ documentId: templateId });
+      .findOne({ documentId: templateId, populate: ['banner'] });
 
     const bannerUrl = template.banner?.url
-      ? `${process.env.STRAPI_UPLOADS_URL}/${template.banner.url}`
+      ? `${(process.env.PUBLIC_URL || '').replace(/\/$/, '')}${template.banner.url}`
       : undefined;
 
     // strapi.log.info(`[send-mail] Template found: ${JSON.stringify(template?.name)}`);
@@ -34,7 +36,6 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       documentId: groupId,
       populate: {
         subscribers: {
-          filters: { subscribedStatus: { $eq: 'active' } },
           fields: ['email'],
         },
       },
@@ -52,12 +53,15 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       return { sent: 0, failed: 0, errors: [] };
     }
 
+    // strapi.log.info(`[send-mail] bannerUrl: ${bannerUrl}`);
+    // strapi.log.info(`[send-mail] template.banner: ${JSON.stringify(template.banner)}`);
+
     const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl);
     const batchSize = 50;
     const delayMs = 1000;
     const results = { sent: 0, failed: 0, errors: [] as string[] };
 
-    strapi.log.info(`[send-mail] Starting send to ${subscribers.length} subscribers`);
+    // strapi.log.info(`[send-mail] Starting send to ${subscribers.length} subscribers`);
 
     for (let i = 0; i < subscribers.length; i += batchSize) {
       const batch = subscribers.slice(i, i + batchSize);
