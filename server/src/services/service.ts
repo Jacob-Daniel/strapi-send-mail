@@ -37,7 +37,12 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
 
   async getGroups() {
     const groups = await strapi.documents('api::subscriber-group.subscriber-group').findMany({
-      fields: ['name'],
+      populate: {
+        subscribers: {
+          filters: { subscribedStatus: { $eq: 'active' } },
+          fields: ['email', 'unsubscribeToken'],
+        },
+      },
     });
     // strapi.log.info(`[send-mail] Groups found: ${JSON.stringify(groups)}`);
     return groups;
