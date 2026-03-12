@@ -1,4 +1,5 @@
 "use strict";
+Object.defineProperties(exports, { __esModule: { value: true }, [Symbol.toStringTag]: { value: "Module" } });
 const react = require("react");
 const jsxRuntime = require("react/jsx-runtime");
 const icons = require("@strapi/icons");
@@ -37,7 +38,7 @@ const index = {
         defaultMessage: PLUGIN_ID
       },
       Component: async () => {
-        const { App } = await Promise.resolve().then(() => require("../_chunks/App-Br0yVR8O.js"));
+        const { App } = await Promise.resolve().then(() => require("./App-Br0yVR8O.js"));
         return App;
       }
     });
@@ -52,7 +53,7 @@ const index = {
     return Promise.all(
       locales.map(async (locale) => {
         try {
-          const { default: data } = await __variableDynamicImportRuntimeHelper(/* @__PURE__ */ Object.assign({ "./translations/en.json": () => Promise.resolve().then(() => require("../_chunks/en-B4KWt_jN.js")) }), `./translations/${locale}.json`, 3);
+          const { default: data } = await __variableDynamicImportRuntimeHelper(/* @__PURE__ */ Object.assign({ "./translations/en.json": () => Promise.resolve().then(() => require("./en-B4KWt_jN.js")) }), `./translations/${locale}.json`, 3);
           return { data, locale };
         } catch {
           return { data: {}, locale };
@@ -61,4 +62,4 @@ const index = {
     );
   }
 };
-module.exports = index;
+exports.default = index;

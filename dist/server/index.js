@@ -1,4 +1,5 @@
 "use strict";
+Object.defineProperties(exports, { __esModule: { value: true }, [Symbol.toStringTag]: { value: "Module" } });
 const bootstrap = ({ strapi }) => {
 };
 const destroy = ({ strapi }) => {
@@ -54,6 +55,25 @@ const adminAPIRoutes = {
 const routes = {
   admin: adminAPIRoutes
 };
+function renderChildren(children) {
+  if (!children) return "";
+  return children.map((child) => {
+    if (child.type === "link") {
+      const text = child.children?.[0]?.text || "Link";
+      return `<a href="${child.url}" rel="noopener noreferrer">${text}</a>`;
+    }
+    if (child.type === "text") {
+      let text = child.text || "";
+      if (child.bold) text = `<b>${text}</b>`;
+      if (child.italic) text = `<i>${text}</i>`;
+      if (child.underline) text = `<u>${text}</u>`;
+      if (child.strikethrough) text = `<s>${text}</s>`;
+      if (child.code) text = `<code>${text}</code>`;
+      return text;
+    }
+    return "";
+  }).join("");
+}
 function renderBlocksToHtml(blocks, bannerUrl) {
   if (!Array.isArray(blocks)) return "";
   let html = "";
@@ -63,51 +83,23 @@ function renderBlocksToHtml(blocks, bannerUrl) {
   blocks.forEach((block) => {
     switch (block.type) {
       case "paragraph": {
-        html += '<p style="font-family: Arial, sans-serif; margin-bottom: 12px;">';
-        block.children?.forEach((child) => {
-          if (child.type === "text") html += child.text;
-          else if (child.type === "link") {
-            const text = child.children?.[0]?.text || "Link";
-            html += `<a href="${child.url}" rel="noopener noreferrer">${text}</a>`;
-          }
-        });
-        html += "</p>";
+        html += `<p style="font-family: Arial, sans-serif; margin-bottom: 12px;">`;
+        html += renderChildren(block.children);
+        html += `</p>`;
         break;
       }
       case "heading": {
         const tag = `h${block.level}`;
         html += `<${tag} style="font-family: Arial, sans-serif; margin-bottom: 8px;">`;
-        block.children?.forEach((child) => {
-          if (child.type === "text") html += child.text;
-        });
+        html += renderChildren(block.children);
         html += `</${tag}>`;
-        break;
-      }
-      case "blold": {
-        html += `<b>`;
-        block.children?.forEach((child) => {
-          if (child.type === "text") html += child.text;
-        });
-        html += `</b>`;
-        break;
-      }
-      case "italic": {
-        html += `<i>`;
-        block.children?.forEach((child) => {
-          if (child.type === "text") html += child.text;
-        });
-        html += `</i>`;
         break;
       }
       case "list": {
         const tag = block.format === "ordered" ? "ol" : "ul";
         html += `<${tag} style="margin-bottom: 12px; padding-left: 20px;">`;
         block.children?.forEach((item) => {
-          html += "<li>";
-          item.children?.forEach((child) => {
-            if (child.type === "text") html += child.text;
-          });
-          html += "</li>";
+          html += `<li>${renderChildren(item.children)}</li>`;
         });
         html += `</${tag}>`;
         break;
@@ -115,16 +107,22 @@ function renderBlocksToHtml(blocks, bannerUrl) {
       case "image": {
         const alt = block.image?.alternativeText || "";
         const rawUrl = block.image?.url || "";
-        const url = rawUrl.startsWith("http") ? rawUrl : `${process.env.STRAPI_UPLOADS_URL || "/uploads/"}${rawUrl}`;
+        const base = (process.env.STRAPI_UPLOADS_URL || "").replace(/\/$/, "");
+        const path = rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+        const url = rawUrl.startsWith("http") ? rawUrl : `${base}${path}`;
         html += `<img src="${url}" alt="${alt}" style="max-width:100%; display:block; margin-bottom:12px;" />`;
         break;
       }
       case "quote": {
         html += `<blockquote style="border-left: 3px solid #ccc; padding-left: 12px; margin-bottom: 12px;">`;
-        block.children?.forEach((child) => {
-          if (child.type === "text") html += child.text;
-        });
-        html += "</blockquote>";
+        html += renderChildren(block.children);
+        html += `</blockquote>`;
+        break;
+      }
+      case "code": {
+        html += `<pre style="background:#f4f4f4; padding:12px; margin-bottom:12px;"><code>`;
+        html += renderChildren(block.children);
+        html += `</code></pre>`;
         break;
       }
     }
@@ -133,25 +131,25 @@ function renderBlocksToHtml(blocks, bannerUrl) {
 }
 const service = ({ strapi }) => ({
   async getGroups() {
-    return strapi.documents("api::subscriber-group.subscriber-group").findMany({
-      fields: ["documentId", "name"]
+    const groups = await strapi.documents("api::subscriber-group.subscriber-group").findMany({
+      fields: ["name"]
     });
+    return groups;
   },
   async getTemplates() {
     return strapi.documents("api::email-template.email-template").findMany({
-      fields: ["documentId", "name", "subject"]
+      fields: ["name", "subject"]
     });
   },
   async send({ groupId, templateId }) {
-    const template = await strapi.documents("api::email-template.email-template").findOne({ documentId: templateId });
-    const bannerUrl = template.banner?.url ? `${process.env.STRAPI_UPLOADS_URL}/${template.banner.url}` : void 0;
+    const template = await strapi.documents("api::email-template.email-template").findOne({ documentId: templateId, populate: ["banner"] });
+    const bannerUrl = template.banner?.url ? `${(process.env.PUBLIC_URL || "").replace(/\/$/, "")}${template.banner.url}` : void 0;
     if (!template) throw new Error(`Template not found: ${templateId}`);
     if (!template.body) throw new Error(`Template body is empty`);
     const group = await strapi.documents("api::subscriber-group.subscriber-group").findOne({
       documentId: groupId,
       populate: {
         subscribers: {
-          filters: { subscribedStatus: { $eq: "active" } },
           fields: ["email"]
         }
       }
@@ -166,7 +164,6 @@ const service = ({ strapi }) => ({
     const batchSize = 50;
     const delayMs = 1e3;
     const results = { sent: 0, failed: 0, errors: [] };
-    strapi.log.info(`[send-mail] Starting send to ${subscribers.length} subscribers`);
     for (let i = 0; i < subscribers.length; i += batchSize) {
       const batch = subscribers.slice(i, i + batchSize);
       await Promise.all(
@@ -208,4 +205,4 @@ const index = {
   policies,
   middlewares
 };
-module.exports = index;
+exports.default = index;
