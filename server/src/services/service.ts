@@ -36,6 +36,7 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       documentId: groupId,
       populate: {
         subscribers: {
+          filters: { subscribedStatus: { $eq: 'active' } },
           fields: ['email'],
         },
       },
