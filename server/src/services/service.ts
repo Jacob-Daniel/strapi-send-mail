@@ -50,8 +50,6 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
   },
 
   async send({ groupId, templateId }: { groupId: string; templateId: string }) {
-    // strapi.log.info(`[send-mail] Sending template ${templateId} to group ${groupId}`);
-
     const template = await strapi
       .documents('api::email-template.email-template')
       .findOne({ documentId: templateId, populate: ['banner'] });
@@ -59,8 +57,6 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
     const bannerUrl = template.banner?.url
       ? `${(process.env.PUBLIC_URL || '').replace(/\/$/, '')}${template.banner.url}`
       : undefined;
-
-    // strapi.log.info(`[send-mail] Template found: ${JSON.stringify(template?.name)}`);
 
     if (!template) throw new Error(`Template not found: ${templateId}`);
     if (!template.body) throw new Error(`Template body is empty`);
@@ -74,9 +70,6 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
         },
       },
     });
-
-    // strapi.log.info(`[send-mail] Group found: ${group?.name}`);
-    // strapi.log.info(`[send-mail] Subscriber count: ${group?.subscribers?.length ?? 0}`);
 
     if (!group) throw new Error(`Group not found: ${groupId}`);
 
@@ -102,14 +95,9 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
 
     const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
-    // In the batch map:
-
-    // const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl);
     const batchSize = 50;
     const delayMs = 1000;
     const results = { sent: 0, failed: 0, errors: [] as string[] };
-
-    // strapi.log.info(`[send-mail] Starting send to ${subscribers.length} subscribers`);
 
     for (let i = 0; i < subscribersWithTokens.length; i += batchSize) {
       const batch = subscribersWithTokens.slice(i, i + batchSize);

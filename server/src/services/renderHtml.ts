@@ -33,14 +33,6 @@ export default function renderBlocksToHtml(
     html += `<img src="${bannerUrl}" alt="" style="width:100%; display:block; margin-bottom:24px;" />`;
   }
 
-  if (unsubscribeUrl) {
-    html += `
-      <p style="margin-top: 32px; font-size: 12px; color: #999; text-align: center; font-family: Arial, sans-serif;">
-        Don't want to receive these emails? 
-        <a href="${unsubscribeUrl}" style="color: #999;">Unsubscribe</a>
-      </p>
-    `;
-  }
   blocks.forEach((block) => {
     switch (block.type) {
       case 'paragraph': {
@@ -90,6 +82,15 @@ export default function renderBlocksToHtml(
         break;
     }
   });
+
+  if (unsubscribeUrl) {
+    html += `
+      <p style="margin-top: 32px; font-size: 12px; color: #999; text-align: center; font-family: Arial, sans-serif;">
+        Don't want to receive these emails? 
+        <a href="${unsubscribeUrl}" style="color: #999;">Unsubscribe</a>
+      </p>
+    `;
+  }
 
   return html;
 }
