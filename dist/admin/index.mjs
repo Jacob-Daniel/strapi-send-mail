@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { jsx } from "react/jsx-runtime";
-import { PuzzlePiece } from "@strapi/icons";
+import { PaperPlane } from "@strapi/icons";
 const __variableDynamicImportRuntimeHelper = (glob, path, segs) => {
   const v = glob[path];
   if (v) {
@@ -25,7 +25,7 @@ const Initializer = ({ setPlugin }) => {
   }, []);
   return null;
 };
-const PluginIcon = () => /* @__PURE__ */ jsx(PuzzlePiece, {});
+const PluginIcon = () => /* @__PURE__ */ jsx(PaperPlane, {});
 const index = {
   register(app) {
     app.addMenuLink({

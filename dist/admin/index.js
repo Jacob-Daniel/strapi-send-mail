@@ -27,7 +27,7 @@ const Initializer = ({ setPlugin }) => {
   }, []);
   return null;
 };
-const PluginIcon = () => /* @__PURE__ */ jsxRuntime.jsx(icons.PuzzlePiece, {});
+const PluginIcon = () => /* @__PURE__ */ jsxRuntime.jsx(icons.PaperPlane, {});
 const index = {
   register(app) {
     app.addMenuLink({
