@@ -1,12 +1,20 @@
 export default () => ({
-  type: "content-api",
+  type: 'content-api',
   routes: [
     {
-      method: "GET",
-      path: "/",
-      // name of the controller file & the method.
-      handler: "controller.index",
+      method: 'GET',
+      path: '/',
+      handler: 'controller.index',
       config: {
+        policies: [],
+      },
+    },
+    {
+      method: 'GET',
+      path: '/unsubscribe',
+      handler: 'controller.unsubscribe',
+      config: {
+        auth: false,
         policies: [],
       },
     },

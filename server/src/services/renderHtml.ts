@@ -20,7 +20,11 @@ function renderChildren(children: any[]): string {
     .join('');
 }
 
-export default function renderBlocksToHtml(blocks: any[], bannerUrl?: string): string {
+export default function renderBlocksToHtml(
+  blocks: any[],
+  bannerUrl?: string,
+  unsubscribeUrl?: string
+): string {
   if (!Array.isArray(blocks)) return '';
 
   let html = '';
@@ -29,6 +33,14 @@ export default function renderBlocksToHtml(blocks: any[], bannerUrl?: string): s
     html += `<img src="${bannerUrl}" alt="" style="width:100%; display:block; margin-bottom:24px;" />`;
   }
 
+  if (unsubscribeUrl) {
+    html += `
+      <p style="margin-top: 32px; font-size: 12px; color: #999; text-align: center; font-family: Arial, sans-serif;">
+        Don't want to receive these emails? 
+        <a href="${unsubscribeUrl}" style="color: #999;">Unsubscribe</a>
+      </p>
+    `;
+  }
   blocks.forEach((block) => {
     switch (block.type) {
       case 'paragraph': {

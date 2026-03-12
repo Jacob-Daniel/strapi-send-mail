@@ -2,6 +2,39 @@ import type { Core } from '@strapi/strapi';
 import renderBlocksToHtml from './renderHtml';
 
 const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: any[]) => any> => ({
+  async generateToken(documentId: string) {
+    const { randomUUID } = await import('crypto');
+    const token = randomUUID();
+    await strapi.documents('api::subscriber.subscriber').update({
+      documentId,
+      data: { unsubscribeToken: token } as any,
+    });
+    return token;
+  },
+
+  async unsubscribe(token: string) {
+    // Find subscriber by token
+    const results = await strapi.documents('api::subscriber.subscriber').findMany({
+      filters: { unsubscribeToken: { $eq: token } },
+      populate: ['groups'],
+    });
+
+    const subscriber = results[0];
+    if (!subscriber) throw new Error('Invalid unsubscribe token');
+
+    // Update status and clear groups
+    await strapi.documents('api::subscriber.subscriber').update({
+      documentId: subscriber.documentId,
+      data: {
+        subscribedStatus: 'unsubscribed',
+        unsubscribedAt: new Date().toISOString(),
+        groups: [],
+      } as any,
+    });
+
+    strapi.log.info(`[send-mail] Unsubscribed: ${subscriber.email}`);
+  },
+
   async getGroups() {
     const groups = await strapi.documents('api::subscriber-group.subscriber-group').findMany({
       fields: ['name'],
@@ -54,22 +87,38 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       return { sent: 0, failed: 0, errors: [] };
     }
 
-    // strapi.log.info(`[send-mail] bannerUrl: ${bannerUrl}`);
-    // strapi.log.info(`[send-mail] template.banner: ${JSON.stringify(template.banner)}`);
+    const subscribersWithTokens = await Promise.all(
+      subscribers.map(async (subscriber: any) => {
+        let token = subscriber.unsubscribeToken;
+        if (!token) {
+          token = await strapi
+            .plugin('send-mail')
+            .service('service')
+            .generateToken(subscriber.documentId);
+        }
+        return { ...subscriber, unsubscribeToken: token };
+      })
+    );
 
-    const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl);
+    const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+
+    // In the batch map:
+
+    // const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl);
     const batchSize = 50;
     const delayMs = 1000;
     const results = { sent: 0, failed: 0, errors: [] as string[] };
 
     // strapi.log.info(`[send-mail] Starting send to ${subscribers.length} subscribers`);
 
-    for (let i = 0; i < subscribers.length; i += batchSize) {
-      const batch = subscribers.slice(i, i + batchSize);
+    for (let i = 0; i < subscribersWithTokens.length; i += batchSize) {
+      const batch = subscribersWithTokens.slice(i, i + batchSize);
 
       await Promise.all(
-        batch.map(async (subscriber) => {
+        batch.map(async (subscriber: any) => {
           try {
+            const unsubUrl = `${baseUrl}/api/send-mail/unsubscribe?token=${subscriber.unsubscribeToken}`;
+            const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl, unsubUrl);
             await strapi.plugins['email'].services.email.send({
               to: subscriber.email,
               subject: template.subject,
@@ -84,7 +133,7 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
         })
       );
 
-      if (i + batchSize < subscribers.length) {
+      if (i + batchSize < subscribersWithTokens.length) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }

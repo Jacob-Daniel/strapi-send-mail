@@ -20,6 +20,11 @@ const controller = ({ strapi }) => ({
   async send(ctx) {
     const { groupId, templateId } = ctx.request.body;
     ctx.body = await strapi.plugin("send-mail").service("service").send({ groupId, templateId });
+  },
+  async unsubscribe(ctx) {
+    const { token } = ctx.query;
+    await strapi.plugin("send-mail").service("service").unsubscribe(token);
+    ctx.redirect(`${process.env.FRONTEND_URL}/unsubscribed`);
   }
 });
 const controllers = {
@@ -72,11 +77,19 @@ function renderChildren(children) {
     return "";
   }).join("");
 }
-function renderBlocksToHtml(blocks, bannerUrl) {
+function renderBlocksToHtml(blocks, bannerUrl, unsubscribeUrl) {
   if (!Array.isArray(blocks)) return "";
   let html = "";
   if (bannerUrl) {
     html += `<img src="${bannerUrl}" alt="" style="width:100%; display:block; margin-bottom:24px;" />`;
+  }
+  if (unsubscribeUrl) {
+    html += `
+      <p style="margin-top: 32px; font-size: 12px; color: #999; text-align: center; font-family: Arial, sans-serif;">
+        Don't want to receive these emails? 
+        <a href="${unsubscribeUrl}" style="color: #999;">Unsubscribe</a>
+      </p>
+    `;
   }
   blocks.forEach((block) => {
     switch (block.type) {
@@ -128,6 +141,32 @@ function renderBlocksToHtml(blocks, bannerUrl) {
   return html;
 }
 const service = ({ strapi }) => ({
+  async generateToken(documentId) {
+    const { randomUUID } = await import("crypto");
+    const token = randomUUID();
+    await strapi.documents("api::subscriber.subscriber").update({
+      documentId,
+      data: { unsubscribeToken: token }
+    });
+    return token;
+  },
+  async unsubscribe(token) {
+    const results = await strapi.documents("api::subscriber.subscriber").findMany({
+      filters: { unsubscribeToken: { $eq: token } },
+      populate: ["groups"]
+    });
+    const subscriber = results[0];
+    if (!subscriber) throw new Error("Invalid unsubscribe token");
+    await strapi.documents("api::subscriber.subscriber").update({
+      documentId: subscriber.documentId,
+      data: {
+        subscribedStatus: "unsubscribed",
+        unsubscribedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        groups: []
+      }
+    });
+    strapi.log.info(`[send-mail] Unsubscribed: ${subscriber.email}`);
+  },
   async getGroups() {
     const groups = await strapi.documents("api::subscriber-group.subscriber-group").findMany({
       fields: ["name"]
@@ -148,6 +187,7 @@ const service = ({ strapi }) => ({
       documentId: groupId,
       populate: {
         subscribers: {
+          filters: { subscribedStatus: { $eq: "active" } },
           fields: ["email"]
         }
       }
@@ -158,15 +198,26 @@ const service = ({ strapi }) => ({
       strapi.log.warn(`[send-mail] No active subscribers found in group ${groupId}`);
       return { sent: 0, failed: 0, errors: [] };
     }
-    const renderedHtml = renderBlocksToHtml(template.body, bannerUrl);
+    const subscribersWithTokens = await Promise.all(
+      subscribers.map(async (subscriber) => {
+        let token = subscriber.unsubscribeToken;
+        if (!token) {
+          token = await strapi.plugin("send-mail").service("service").generateToken(subscriber.documentId);
+        }
+        return { ...subscriber, unsubscribeToken: token };
+      })
+    );
+    const baseUrl = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
     const batchSize = 50;
     const delayMs = 1e3;
     const results = { sent: 0, failed: 0, errors: [] };
-    for (let i = 0; i < subscribers.length; i += batchSize) {
-      const batch = subscribers.slice(i, i + batchSize);
+    for (let i = 0; i < subscribersWithTokens.length; i += batchSize) {
+      const batch = subscribersWithTokens.slice(i, i + batchSize);
       await Promise.all(
         batch.map(async (subscriber) => {
           try {
+            const unsubUrl = `${baseUrl}/api/send-mail/unsubscribe?token=${subscriber.unsubscribeToken}`;
+            const renderedHtml = renderBlocksToHtml(template.body, bannerUrl, unsubUrl);
             await strapi.plugins["email"].services.email.send({
               to: subscriber.email,
               subject: template.subject,
@@ -180,7 +231,7 @@ const service = ({ strapi }) => ({
           }
         })
       );
-      if (i + batchSize < subscribers.length) {
+      if (i + batchSize < subscribersWithTokens.length) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
