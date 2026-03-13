@@ -3,14 +3,6 @@ export default () => ({
   routes: [
     {
       method: 'GET',
-      path: '/',
-      handler: 'controller.index',
-      config: {
-        policies: [],
-      },
-    },
-    {
-      method: 'GET',
       path: '/unsubscribe',
       handler: 'controller.unsubscribe',
       config: {

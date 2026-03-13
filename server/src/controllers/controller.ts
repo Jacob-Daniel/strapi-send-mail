@@ -16,6 +16,24 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     await strapi.plugin('send-mail').service('service').unsubscribe(token);
     ctx.redirect(`${process.env.FRONTEND_URL}/unsubscribed`);
   },
+  async unsubscribe(ctx) {
+    const { token } = ctx.query;
+
+    if (!token || typeof token !== 'string') {
+      ctx.status = 400;
+      ctx.body = { error: { message: 'Missing token' } };
+      return;
+    }
+
+    try {
+      await strapi.plugin('send-mail').service('service').unsubscribe(token);
+      ctx.status = 200;
+      ctx.body = { message: 'Unsubscribed successfully' };
+    } catch (err) {
+      ctx.status = 400;
+      ctx.body = { error: { message: err.message ?? 'Unsubscribe failed' } };
+    }
+  },
 });
 
 export default controller;
