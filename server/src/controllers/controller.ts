@@ -21,9 +21,12 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
 
     try {
-      await strapi.plugin('send-mail').service('service').unsubscribe(token);
+      const result = await strapi.plugin('send-mail').service('service').unsubscribe(token);
       ctx.status = 200;
-      ctx.body = { message: 'Unsubscribed successfully' };
+      ctx.body = {
+        message: result.alreadyUnsubscribed ? 'Already unsubscribed' : 'Unsubscribed successfully',
+        alreadyUnsubscribed: result.alreadyUnsubscribed,
+      };
     } catch (err) {
       ctx.status = 400;
       ctx.body = { error: { message: err.message ?? 'Unsubscribe failed' } };

@@ -53,9 +53,12 @@ const controller = ({ strapi }) => ({
       return;
     }
     try {
-      await strapi.plugin("send-mail").service("service").unsubscribe(token);
+      const result = await strapi.plugin("send-mail").service("service").unsubscribe(token);
       ctx.status = 200;
-      ctx.body = { message: "Unsubscribed successfully" };
+      ctx.body = {
+        message: result.alreadyUnsubscribed ? "Already unsubscribed" : "Unsubscribed successfully",
+        alreadyUnsubscribed: result.alreadyUnsubscribed
+      };
     } catch (err) {
       ctx.status = 400;
       ctx.body = { error: { message: err.message ?? "Unsubscribe failed" } };
@@ -251,6 +254,10 @@ const service = ({ strapi }) => ({
     });
     const subscriber = results[0];
     if (!subscriber) throw new Error("Invalid unsubscribe token");
+    if (subscriber.subscribedStatus === "unsubscribed") {
+      strapi.log.info(`[send-mail] Already unsubscribed: ${subscriber.email}`);
+      return { alreadyUnsubscribed: true };
+    }
     await strapi.documents("api::subscriber.subscriber").update({
       documentId: subscriber.documentId,
       data: {
@@ -260,6 +267,7 @@ const service = ({ strapi }) => ({
       }
     });
     strapi.log.info(`[send-mail] Unsubscribed: ${subscriber.email}`);
+    return { alreadyUnsubscribed: false };
   },
   async getGroups() {
     const groups = await strapi.documents("api::subscriber-group.subscriber-group").findMany({

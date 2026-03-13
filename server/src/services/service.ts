@@ -13,7 +13,6 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
   },
 
   async unsubscribe(token: string) {
-    // Find subscriber by token
     const results = await strapi.documents('api::subscriber.subscriber').findMany({
       filters: { unsubscribeToken: { $eq: token } },
       populate: ['groups'],
@@ -22,7 +21,12 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
     const subscriber = results[0];
     if (!subscriber) throw new Error('Invalid unsubscribe token');
 
-    // Update status and clear groups
+    // Already unsubscribed — treat as success, no update needed
+    if (subscriber.subscribedStatus === 'unsubscribed') {
+      strapi.log.info(`[send-mail] Already unsubscribed: ${subscriber.email}`);
+      return { alreadyUnsubscribed: true };
+    }
+
     await strapi.documents('api::subscriber.subscriber').update({
       documentId: subscriber.documentId,
       data: {
@@ -33,6 +37,7 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
     });
 
     strapi.log.info(`[send-mail] Unsubscribed: ${subscriber.email}`);
+    return { alreadyUnsubscribed: false };
   },
 
   async getGroups() {
