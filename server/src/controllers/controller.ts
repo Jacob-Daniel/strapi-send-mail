@@ -13,11 +13,6 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
   async unsubscribe(ctx) {
     const { token } = ctx.query;
-    await strapi.plugin('send-mail').service('service').unsubscribe(token);
-    ctx.redirect(`${process.env.FRONTEND_URL}/unsubscribed`);
-  },
-  async unsubscribe(ctx) {
-    const { token } = ctx.query;
 
     if (!token || typeof token !== 'string') {
       ctx.status = 400;

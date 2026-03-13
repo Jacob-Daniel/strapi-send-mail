@@ -98,7 +98,7 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       })
     );
 
-    const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
     const batchSize = 50;
     const delayMs = 1000;
@@ -110,7 +110,7 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       await Promise.all(
         batch.map(async (subscriber: any) => {
           try {
-            const unsubUrl = `${baseUrl}/api/send-mail/unsubscribe?token=${subscriber.unsubscribeToken}`;
+            const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber.unsubscribeToken}`;
             const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl, unsubUrl);
             await strapi.plugins['email'].services.email.send({
               to: subscriber.email,

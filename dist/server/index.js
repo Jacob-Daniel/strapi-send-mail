@@ -47,11 +47,6 @@ const controller = ({ strapi }) => ({
   },
   async unsubscribe(ctx) {
     const { token } = ctx.query;
-    await strapi.plugin("send-mail").service("service").unsubscribe(token);
-    ctx.redirect(`${process.env.FRONTEND_URL}/unsubscribed`);
-  },
-  async unsubscribe(ctx) {
-    const { token } = ctx.query;
     if (!token || typeof token !== "string") {
       ctx.status = 400;
       ctx.body = { error: { message: "Missing token" } };
@@ -311,7 +306,7 @@ const service = ({ strapi }) => ({
         return { ...subscriber, unsubscribeToken: token };
       })
     );
-    const baseUrl = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+    const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
     const batchSize = 50;
     const delayMs = 1e3;
     const results = { sent: 0, failed: 0, errors: [] };
@@ -320,7 +315,7 @@ const service = ({ strapi }) => ({
       await Promise.all(
         batch.map(async (subscriber) => {
           try {
-            const unsubUrl = `${baseUrl}/api/send-mail/unsubscribe?token=${subscriber.unsubscribeToken}`;
+            const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber.unsubscribeToken}`;
             const renderedHtml = renderBlocksToHtml(template.body, bannerUrl, unsubUrl);
             await strapi.plugins["email"].services.email.send({
               to: subscriber.email,
