@@ -24,7 +24,7 @@
     "name": "Jacob Daniel",
     "url": "https://jacobdaniel.co.uk"
   },
-  "type": "commonjs",
+  "type": "module",
   "exports": {
     "./package.json": "./package.json",
     "./strapi-admin": {
