@@ -116,7 +116,13 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
         batch.map(async (subscriber: any) => {
           try {
             const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber.unsubscribeToken}`;
-            const renderedHtml = renderBlocksToHtml(template.body as any[], bannerUrl, unsubUrl);
+            const privacyUrl = `${frontendUrl}/privacy`;
+            const renderedHtml = renderBlocksToHtml(
+              template.body as any[],
+              privacyUrl,
+              bannerUrl,
+              unsubUrl
+            );
             await strapi.plugins['email'].services.email.send({
               to: subscriber.email,
               subject: template.subject,

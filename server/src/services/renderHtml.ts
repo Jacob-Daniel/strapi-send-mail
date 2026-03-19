@@ -23,6 +23,7 @@ function renderChildren(children: any[]): string {
 
 export default function renderBlocksToHtml(
   blocks: any[],
+  privacyUrl: string,
   bannerUrl?: string,
   unsubscribeUrl?: string
 ): string {
@@ -126,15 +127,20 @@ export default function renderBlocksToHtml(
           <!-- Footer -->
           <tr>
             <td style="background:#f9f9f9; border-top:1px solid #e8e8e8; padding:20px 40px; text-align:center;">
-              ${
-                unsubscribeUrl
-                  ? `
               <p style="margin:0; font-size:12px; color:#999999; line-height:1.6;">
-                Don't want to receive these emails?
-                <a href="${unsubscribeUrl}" style="color:#999999; text-decoration:underline;">Unsubscribe</a>
-              </p>`
-                  : ''
-              }
+                ${
+                  unsubscribeUrl
+                    ? `
+                  Don't want to receive these emails?
+                  <a href="${unsubscribeUrl}" style="color:#999999; text-decoration:underline;">Unsubscribe</a>
+                  &nbsp;|&nbsp;
+                  <a href="https://yourdomain.com/privacy" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
+                `
+                    : `
+                  <a href="${privacyUrl}" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
+                `
+                }
+              </p>
             </td>
           </tr>
 
