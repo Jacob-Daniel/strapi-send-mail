@@ -134,7 +134,7 @@ export default function renderBlocksToHtml(
                   Don't want to receive these emails?
                   <a href="${unsubscribeUrl}" style="color:#999999; text-decoration:underline;">Unsubscribe</a>
                   &nbsp;|&nbsp;
-                  <a href="https://yourdomain.com/privacy" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
+                  <a href="${privacyUrl}" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
                 `
                     : `
                   <a href="${privacyUrl}" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
