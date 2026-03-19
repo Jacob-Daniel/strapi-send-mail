@@ -131,7 +131,7 @@ function renderChildren(children) {
     return "";
   }).join("");
 }
-function renderBlocksToHtml(blocks, bannerUrl, unsubscribeUrl) {
+function renderBlocksToHtml(blocks, privacyUrl, bannerUrl, unsubscribeUrl) {
   if (!Array.isArray(blocks)) return "";
   let body = "";
   blocks.forEach((block) => {
@@ -221,11 +221,16 @@ function renderBlocksToHtml(blocks, bannerUrl, unsubscribeUrl) {
           <!-- Footer -->
           <tr>
             <td style="background:#f9f9f9; border-top:1px solid #e8e8e8; padding:20px 40px; text-align:center;">
-              ${unsubscribeUrl ? `
               <p style="margin:0; font-size:12px; color:#999999; line-height:1.6;">
-                Don't want to receive these emails?
-                <a href="${unsubscribeUrl}" style="color:#999999; text-decoration:underline;">Unsubscribe</a>
-              </p>` : ""}
+                ${unsubscribeUrl ? `
+                  Don't want to receive these emails?
+                  <a href="${unsubscribeUrl}" style="color:#999999; text-decoration:underline;">Unsubscribe</a>
+                  &nbsp;|&nbsp;
+                  <a href="${privacyUrl}" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
+                ` : `
+                  <a href="${privacyUrl}" style="color:#999999; text-decoration:underline;">Privacy Policy</a>
+                `}
+              </p>
             </td>
           </tr>
 
@@ -324,7 +329,13 @@ const service = ({ strapi }) => ({
         batch.map(async (subscriber) => {
           try {
             const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber.unsubscribeToken}`;
-            const renderedHtml = renderBlocksToHtml(template.body, bannerUrl, unsubUrl);
+            const privacyUrl = `${frontendUrl}/privacy`;
+            const renderedHtml = renderBlocksToHtml(
+              template.body,
+              privacyUrl,
+              bannerUrl,
+              unsubUrl
+            );
             await strapi.plugins["email"].services.email.send({
               to: subscriber.email,
               subject: template.subject,
