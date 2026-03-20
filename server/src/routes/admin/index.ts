@@ -1,6 +1,7 @@
 export default {
   type: 'admin',
   routes: [
+    // ── Subscribers & templates ───────────────────────────────────────────
     {
       method: 'GET',
       path: '/groups',
@@ -13,30 +14,38 @@ export default {
       handler: 'controller.getTemplates',
       config: { policies: [] },
     },
+
+    // ── Send (enqueue) ────────────────────────────────────────────────────
     {
       method: 'POST',
       path: '/send',
       handler: 'controller.send',
       config: { policies: [] },
     },
+
+    // ── Unsent check ──────────────────────────────────────────────────────
     {
       method: 'GET',
-      path: '/groups',
-      handler: 'controller.getGroups',
+      path: '/groups/:groupId/unsent',
+      handler: 'controller.getUnsentByGroup',
       config: { policies: [] },
     },
+
+    // ── Campaigns ─────────────────────────────────────────────────────────
     {
       method: 'GET',
-      path: '/templates',
-      handler: 'controller.getTemplates',
+      path: '/campaigns',
+      handler: 'controller.getCampaigns',
       config: { policies: [] },
     },
     {
       method: 'POST',
-      path: '/send',
-      handler: 'controller.send',
+      path: '/campaigns/:campaignId/retry',
+      handler: 'controller.retryCampaign',
       config: { policies: [] },
     },
+
+    // ── Settings ──────────────────────────────────────────────────────────
     {
       method: 'GET',
       path: '/settings',
@@ -49,6 +58,8 @@ export default {
       handler: 'controller.saveSettings',
       config: { policies: [] },
     },
+
+    // ── Collection introspection ──────────────────────────────────────────
     {
       method: 'GET',
       path: '/collections',

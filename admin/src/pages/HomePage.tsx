@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
   Field,
   Flex,
   Grid,
+  NumberInput,
   SingleSelect,
   SingleSelectOption,
   Tabs,
@@ -13,7 +14,7 @@ import {
   Alert,
   Loader,
 } from '@strapi/design-system';
-import { Check } from '@strapi/icons';
+import { ArrowClockwise, Check } from '@strapi/icons';
 import { useFetchClient, useNotification } from '@strapi/strapi/admin';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -24,6 +25,8 @@ interface PluginSettings {
   statusField: string;
   activeValue: string;
   tokenField: string;
+  batchSize: number;
+  delayMs: number;
 }
 
 interface Collection {
@@ -37,12 +40,62 @@ interface CollectionField {
   enum: string[] | null;
 }
 
+interface Campaign {
+  documentId: string;
+  name: string;
+  status: 'sending' | 'sent' | 'failed';
+  templateName: string | null;
+  templateSubject: string | null;
+  groupName: string | null;
+  totalSent: number;
+  totalFailed: number;
+  sentAt: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+interface UnsentInfo {
+  count: number;
+  campaignDocumentId: string | null;
+}
+
 const DEFAULT_SETTINGS: PluginSettings = {
   collection: 'api::subscriber.subscriber',
   emailField: 'email',
   statusField: 'subscribedStatus',
   activeValue: 'active',
   tokenField: 'unsubscribeToken',
+  batchSize: 50,
+  delayMs: 1000,
+};
+
+// ── Status badge ───────────────────────────────────────────────────────────
+
+const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
+  sending: { bg: '#f0c000', text: '#4a3800' },
+  sent: { bg: '#328048', text: '#ffffff' },
+  failed: { bg: '#d02b20', text: '#ffffff' },
+};
+
+const StatusBadge = ({ status }: { status: string }) => {
+  const s = STATUS_STYLES[status] ?? { bg: '#8e8ea9', text: '#ffffff' };
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: 4,
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        backgroundColor: s.bg,
+        color: s.text,
+      }}
+    >
+      {status}
+    </span>
+  );
 };
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -51,30 +104,36 @@ const HomePage = () => {
   const { get, post } = useFetchClient();
   const { toggleNotification } = useNotification();
 
-  // ── Send state (unchanged) ────────────────────────────────────────────────
+  // ── Send state ────────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
-  const [groupId, setGroupId] = useState<string>('');
-  const [templateId, setTemplateId] = useState<string>('');
-  const [status, setStatus] = useState<null | 'success' | 'error'>(null);
-  const [result, setResult] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [groupId, setGroupId] = useState('');
+  const [templateId, setTemplateId] = useState('');
+  const [enqueueing, setEnqueueing] = useState(false);
+  const [enqueueResult, setEnqueueResult] = useState<{ queued: number } | null>(null);
+
+  // Unsent rows for the selected group
+  const [unsentInfo, setUnsentInfo] = useState<UnsentInfo | null>(null);
+  const [loadingUnsent, setLoadingUnsent] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  // ── Campaigns state ───────────────────────────────────────────────────────
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
 
   // ── Settings state ────────────────────────────────────────────────────────
   const [settings, setSettings] = useState<PluginSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PluginSettings>(DEFAULT_SETTINGS);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
-
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loadingCollections, setLoadingCollections] = useState(true);
   const [collectionsError, setCollectionsError] = useState(false);
-
   const [fields, setFields] = useState<CollectionField[]>([]);
   const [loadingFields, setLoadingFields] = useState(false);
   const [fieldsError, setFieldsError] = useState(false);
 
-  // ── Existing send effect (unchanged) ─────────────────────────────────────
+  // ── Load groups + templates ───────────────────────────────────────────────
   useEffect(() => {
     get('/send-mail/groups')
       .then(({ data }) => setGroups(data))
@@ -84,7 +143,7 @@ const HomePage = () => {
       .catch(() => {});
   }, []);
 
-  // ── Load settings + collections on mount ─────────────────────────────────
+  // ── Load settings + collections ───────────────────────────────────────────
   useEffect(() => {
     get('/send-mail/settings')
       .then(({ data }) => {
@@ -92,9 +151,7 @@ const HomePage = () => {
         setSettings(s);
         setSavedSettings(s);
       })
-      .catch(() => {
-        // Leave defaults in place — fields will still load for api::subscriber
-      });
+      .catch(() => {});
 
     setLoadingCollections(true);
     get('/send-mail/collections')
@@ -106,7 +163,7 @@ const HomePage = () => {
       .finally(() => setLoadingCollections(false));
   }, []);
 
-  // ── Reload fields whenever collection changes ─────────────────────────────
+  // ── Reload fields on collection change ────────────────────────────────────
   useEffect(() => {
     if (!settings.collection) {
       setFields([]);
@@ -126,23 +183,82 @@ const HomePage = () => {
       .finally(() => setLoadingFields(false));
   }, [settings.collection]);
 
-  // ── Send handler (unchanged) ──────────────────────────────────────────────
+  // ── Check unsent rows when group changes ─────────────────────────────────
+  useEffect(() => {
+    if (!groupId) {
+      setUnsentInfo(null);
+      return;
+    }
+    setLoadingUnsent(true);
+    get(`/send-mail/groups/${groupId}/unsent`)
+      .then(({ data }) => setUnsentInfo(data))
+      .catch(() => setUnsentInfo(null))
+      .finally(() => setLoadingUnsent(false));
+  }, [groupId]);
+
+  // ── Load campaigns ────────────────────────────────────────────────────────
+  const loadCampaigns = useCallback(() => {
+    setLoadingCampaigns(true);
+    get('/send-mail/campaigns')
+      .then(({ data }) => setCampaigns(data ?? []))
+      .catch(() => toggleNotification({ type: 'warning', message: 'Failed to load campaigns' }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [get, toggleNotification]);
+
+  useEffect(() => {
+    loadCampaigns();
+  }, [loadCampaigns]);
+
+  // ── Send handler ──────────────────────────────────────────────────────────
   const handleSend = async () => {
-    setLoading(true);
-    setStatus(null);
+    setEnqueueing(true);
+    setEnqueueResult(null);
     try {
       const { data } = await post('/send-mail/send', { groupId, templateId });
-      setResult(data);
-      setStatus('success');
-    } catch {
-      setStatus('error');
+      setEnqueueResult(data);
+      setUnsentInfo(null);
+      toggleNotification({
+        type: 'success',
+        message: `Campaign queued — ${data.queued} recipients. Processing starts within 5 minutes.`,
+      });
+      loadCampaigns();
+    } catch (err: any) {
+      toggleNotification({
+        type: 'warning',
+        message: err?.response?.data?.error?.message ?? 'Failed to enqueue campaign',
+      });
     } finally {
-      setLoading(false);
+      setEnqueueing(false);
+    }
+  };
+
+  // ── Retry unsent for selected group ───────────────────────────────────────
+  const handleRetry = async () => {
+    if (!unsentInfo?.campaignDocumentId) return;
+    setRetrying(true);
+    try {
+      const { data } = await post(
+        `/send-mail/campaigns/${unsentInfo.campaignDocumentId}/retry`,
+        {}
+      );
+      toggleNotification({
+        type: 'success',
+        message: `Retry queued — ${data.queued} unsent emails will be retried within 5 minutes.`,
+      });
+      setUnsentInfo(null);
+      loadCampaigns();
+    } catch (err: any) {
+      toggleNotification({
+        type: 'warning',
+        message: err?.response?.data?.error?.message ?? 'Retry failed',
+      });
+    } finally {
+      setRetrying(false);
     }
   };
 
   // ── Settings handlers ─────────────────────────────────────────────────────
-  const updateSetting = (key: keyof PluginSettings, value: string) => {
+  const updateSetting = (key: keyof PluginSettings, value: string | number) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
       if (key === 'collection') {
@@ -151,9 +267,7 @@ const HomePage = () => {
         next.activeValue = '';
         next.tokenField = '';
       }
-      if (key === 'statusField') {
-        next.activeValue = '';
-      }
+      if (key === 'statusField') next.activeValue = '';
       return next;
     });
     setSettingsDirty(true);
@@ -179,9 +293,8 @@ const HomePage = () => {
   const scalarFields = fields.filter((f) => ['string', 'email', 'text', 'uid'].includes(f.type));
   const activeValueOptions: string[] =
     fields.find((f) => f.name === settings.statusField)?.enum ?? [];
-
-  // Whether the saved collection actually exists in the available list
   const savedCollectionExists = collections.some((c) => c.uid === savedSettings.collection);
+  const hasUnsent = (unsentInfo?.count ?? 0) > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -193,6 +306,9 @@ const HomePage = () => {
       <Tabs.Root defaultValue="send">
         <Tabs.List aria-label="Send Mail tabs">
           <Tabs.Trigger value="send">Send</Tabs.Trigger>
+          <Tabs.Trigger value="campaigns">
+            Campaigns{campaigns.some((c) => c.status === 'sending') ? ' ●' : ''}
+          </Tabs.Trigger>
           <Tabs.Trigger value="settings">Settings{settingsDirty ? ' ●' : ''}</Tabs.Trigger>
         </Tabs.List>
 
@@ -206,13 +322,12 @@ const HomePage = () => {
               hasRadius
               style={{ maxWidth: 480 }}
             >
-              {/* Warn if the saved collection no longer exists */}
               {!loadingCollections && !savedCollectionExists && (
                 <Box paddingBottom={4}>
                   <Alert variant="caution" title="Subscriber collection not found">
                     <Typography variant="pi">
-                      <strong>{savedSettings.collection}</strong> does not exist in this Strapi
-                      instance. Go to Settings to choose a valid collection before sending.
+                      <strong>{savedSettings.collection}</strong> does not exist. Go to Settings to
+                      choose a valid collection.
                     </Typography>
                   </Alert>
                 </Box>
@@ -234,6 +349,35 @@ const HomePage = () => {
                   </SingleSelect>
                 </Field.Root>
               </Box>
+
+              {/* Unsent warning — shown after group selected */}
+              {groupId && !loadingUnsent && hasUnsent && (
+                <Box paddingBottom={4}>
+                  <Alert
+                    variant="caution"
+                    title={`${unsentInfo!.count} unsent emails from previous campaign`}
+                  >
+                    <Flex gap={2} alignItems="center" paddingTop={2}>
+                      <Typography variant="pi">
+                        These emails were not delivered. Retry them before sending a new campaign,
+                        or proceed to send a fresh batch.
+                      </Typography>
+                    </Flex>
+                    <Box paddingTop={3}>
+                      <Button
+                        variant="secondary"
+                        startIcon={<ArrowClockwise />}
+                        loading={retrying}
+                        onClick={handleRetry}
+                        size="S"
+                      >
+                        Retry {unsentInfo!.count} unsent
+                      </Button>
+                    </Box>
+                  </Alert>
+                </Box>
+              )}
+
               <Box paddingBottom={6}>
                 <Field.Root name="template">
                   <Field.Label>Email Template</Field.Label>
@@ -250,35 +394,128 @@ const HomePage = () => {
                   </SingleSelect>
                 </Field.Root>
               </Box>
+
               <Button
                 onClick={handleSend}
                 disabled={
                   !groupId ||
                   !templateId ||
-                  loading ||
+                  enqueueing ||
                   (!loadingCollections && !savedCollectionExists)
                 }
-                loading={loading}
+                loading={enqueueing}
                 size="L"
                 fullWidth
               >
                 Send Emails
               </Button>
-              {status === 'success' && (
+
+              {enqueueResult && (
                 <Box paddingTop={4}>
-                  <Alert variant="success" title="Emails sent!">
-                    {result?.sent} sent · {result?.failed} failed
-                  </Alert>
-                </Box>
-              )}
-              {status === 'error' && (
-                <Box paddingTop={4}>
-                  <Alert variant="danger" title="Send failed">
-                    Check the server logs for details.
+                  <Alert variant="success" title="Campaign queued">
+                    {enqueueResult.queued} recipients added to the send queue. Check the Campaigns
+                    tab for progress.
                   </Alert>
                 </Box>
               )}
             </Box>
+          </Box>
+        </Tabs.Content>
+
+        {/* ── CAMPAIGNS TAB — read-only audit log ──────────────────────── */}
+        <Tabs.Content value="campaigns">
+          <Box paddingTop={6}>
+            <Flex justifyContent="flex-end" paddingBottom={4}>
+              <Button
+                variant="tertiary"
+                startIcon={<ArrowClockwise />}
+                onClick={loadCampaigns}
+                loading={loadingCampaigns}
+              >
+                Refresh
+              </Button>
+            </Flex>
+
+            {loadingCampaigns && campaigns.length === 0 ? (
+              <Flex justifyContent="center" padding={8}>
+                <Loader>Loading campaigns…</Loader>
+              </Flex>
+            ) : campaigns.length === 0 ? (
+              <Box background="neutral0" padding={6} shadow="tableShadow" hasRadius>
+                <Typography variant="omega" textColor="neutral600">
+                  No campaigns yet. Use the Send tab to create your first one.
+                </Typography>
+              </Box>
+            ) : (
+              <Flex direction="column" gap={3}>
+                {campaigns.map((campaign) => (
+                  <Box
+                    key={campaign.documentId}
+                    background="neutral0"
+                    padding={5}
+                    shadow="tableShadow"
+                    hasRadius
+                  >
+                    <Flex justifyContent="space-between" alignItems="flex-start">
+                      <Box>
+                        <Flex gap={3} alignItems="center" paddingBottom={2}>
+                          <Typography variant="delta" fontWeight="bold">
+                            {campaign.name}
+                          </Typography>
+                          <StatusBadge status={campaign.status} />
+                        </Flex>
+
+                        <Flex gap={4} paddingBottom={1}>
+                          {campaign.groupName && (
+                            <Typography variant="pi" textColor="neutral500">
+                              Group: <strong>{campaign.groupName}</strong>
+                            </Typography>
+                          )}
+                          {campaign.templateName && (
+                            <Typography variant="pi" textColor="neutral500">
+                              Template: <strong>{campaign.templateName}</strong>
+                            </Typography>
+                          )}
+                        </Flex>
+
+                        <Flex gap={4}>
+                          <Typography variant="pi" textColor="success600">
+                            ✓ {campaign.totalSent ?? 0} sent
+                          </Typography>
+                          <Typography variant="pi" textColor="danger600">
+                            ✗ {campaign.totalFailed ?? 0} failed
+                          </Typography>
+                          {campaign.sentAt && (
+                            <Typography variant="pi" textColor="neutral500">
+                              Completed: {new Date(campaign.sentAt).toLocaleString('en-GB')}
+                            </Typography>
+                          )}
+                          {!campaign.sentAt && campaign.status === 'sending' && (
+                            <Typography variant="pi" textColor="warning600">
+                              Processing — next check within 5 mins
+                            </Typography>
+                          )}
+                        </Flex>
+
+                        {campaign.error && (
+                          <Box paddingTop={2}>
+                            <Typography variant="pi" textColor="danger600">
+                              Error: {campaign.error}
+                            </Typography>
+                          </Box>
+                        )}
+
+                        <Box paddingTop={1}>
+                          <Typography variant="pi" textColor="neutral400">
+                            Created: {new Date(campaign.createdAt).toLocaleString('en-GB')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Flex>
+                  </Box>
+                ))}
+              </Flex>
+            )}
           </Box>
         </Tabs.Content>
 
@@ -294,10 +531,10 @@ const HomePage = () => {
             >
               <Flex justifyContent="space-between" alignItems="center" paddingBottom={6}>
                 <Box>
-                  <Typography variant="beta">Subscriber Collection</Typography>
+                  <Typography variant="beta">Plugin Settings</Typography>
                   <Box paddingTop={1}>
                     <Typography variant="pi" textColor="neutral600">
-                      Choose which collection stores subscribers and map its fields.
+                      Configure the subscriber collection, field mapping, and send throttle.
                     </Typography>
                   </Box>
                 </Box>
@@ -311,7 +548,6 @@ const HomePage = () => {
                 </Button>
               </Flex>
 
-              {/* Collections loading / error / empty states */}
               {loadingCollections ? (
                 <Flex justifyContent="center" padding={4}>
                   <Loader small>Loading collections…</Loader>
@@ -322,16 +558,15 @@ const HomePage = () => {
                 </Alert>
               ) : collections.length === 0 ? (
                 <Alert variant="caution" title="No collections found">
-                  No <code>api::</code> content types were found. Create a collection type in the
-                  Content-Type Builder first, then return here to configure it as the subscriber
-                  source.
+                  No <code>api::</code> content types found. Create a collection type in the
+                  Content-Type Builder first.
                 </Alert>
               ) : (
                 <>
                   {/* Collection picker */}
                   <Box paddingBottom={4}>
                     <Field.Root name="collection">
-                      <Field.Label>Collection</Field.Label>
+                      <Field.Label>Subscriber Collection</Field.Label>
                       <SingleSelect
                         placeholder="Select a collection..."
                         value={settings.collection}
@@ -346,7 +581,6 @@ const HomePage = () => {
                     </Field.Root>
                   </Box>
 
-                  {/* Fields loading / error / empty states */}
                   {loadingFields ? (
                     <Flex justifyContent="center" padding={4}>
                       <Loader small>Loading fields…</Loader>
@@ -354,16 +588,13 @@ const HomePage = () => {
                   ) : fieldsError ? (
                     <Box paddingBottom={4}>
                       <Alert variant="caution" title="Could not load fields">
-                        The selected collection (<strong>{settings.collection}</strong>) could not
-                        be introspected. It may not exist yet — save the collection choice first,
-                        then reload.
+                        The selected collection could not be introspected.
                       </Alert>
                     </Box>
                   ) : fields.length === 0 && settings.collection ? (
                     <Box paddingBottom={4}>
                       <Alert variant="caution" title="No mappable fields found">
-                        This collection has no string, email, text, UID, or enumeration fields. Add
-                        fields in the Content-Type Builder and rebuild.
+                        This collection has no string, email, text, UID, or enumeration fields.
                       </Alert>
                     </Box>
                   ) : fields.length > 0 ? (
@@ -445,12 +676,35 @@ const HomePage = () => {
                           )}
                         </Field.Root>
                       </Grid.Item>
+
+                      {/* Throttle settings */}
+                      <Grid.Item col={6}>
+                        <Field.Root name="batchSize">
+                          <Field.Label>Batch Size</Field.Label>
+                          <Field.Hint>Emails sent per batch before delay.</Field.Hint>
+                          <NumberInput
+                            value={settings.batchSize}
+                            onValueChange={(val: number) => updateSetting('batchSize', val ?? 50)}
+                          />
+                        </Field.Root>
+                      </Grid.Item>
+
+                      <Grid.Item col={6}>
+                        <Field.Root name="delayMs">
+                          <Field.Label>Delay Between Batches (ms)</Field.Label>
+                          <Field.Hint>Milliseconds to wait between batches.</Field.Hint>
+                          <NumberInput
+                            value={settings.delayMs}
+                            onValueChange={(val: number) => updateSetting('delayMs', val ?? 1000)}
+                          />
+                        </Field.Root>
+                      </Grid.Item>
                     </Grid.Root>
                   ) : null}
                 </>
               )}
 
-              {/* Read-only summary of saved config */}
+              {/* Active config summary */}
               {!settingsDirty && !loadingCollections && !collectionsError && (
                 <Box background="neutral100" padding={4} hasRadius marginTop={6}>
                   <Typography variant="sigma" textColor="neutral600">
@@ -463,7 +717,7 @@ const HomePage = () => {
                           {k}:
                         </Typography>
                         <Typography variant="pi" fontWeight="bold">
-                          {v || '—'}
+                          {String(v) || '—'}
                         </Typography>
                       </Flex>
                     ))}

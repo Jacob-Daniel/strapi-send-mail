@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 
 const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
-  // ── Existing ──────────────────────────────────────────────────────────────
+  // ── Subscribers & templates ───────────────────────────────────────────────
 
   async getGroups(ctx) {
     ctx.body = await strapi.plugin('send-mail').service('service').getGroups();
@@ -9,11 +9,6 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   async getTemplates(ctx) {
     ctx.body = await strapi.plugin('send-mail').service('service').getTemplates();
-  },
-
-  async send(ctx) {
-    const { groupId, templateId } = ctx.request.body;
-    ctx.body = await strapi.plugin('send-mail').service('service').send({ groupId, templateId });
   },
 
   async unsubscribe(ctx) {
@@ -33,6 +28,59 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     } catch (err) {
       ctx.status = 400;
       ctx.body = { error: { message: err.message ?? 'Unsubscribe failed' } };
+    }
+  },
+
+  // ── Send (enqueue) ────────────────────────────────────────────────────────
+
+  async send(ctx) {
+    const { groupId, templateId } = ctx.request.body;
+    if (!groupId || !templateId) {
+      ctx.status = 400;
+      ctx.body = { error: { message: 'groupId and templateId are required' } };
+      return;
+    }
+    try {
+      ctx.body = await strapi
+        .plugin('send-mail')
+        .service('service')
+        .enqueueCampaign({ groupId, templateId });
+    } catch (err) {
+      ctx.status = 400;
+      ctx.body = { error: { message: err.message ?? 'Failed to enqueue campaign' } };
+    }
+  },
+
+  // ── Unsent check for a group ──────────────────────────────────────────────
+
+  async getUnsentByGroup(ctx) {
+    const { groupId } = ctx.params;
+    if (!groupId) {
+      ctx.status = 400;
+      ctx.body = { error: { message: 'groupId is required' } };
+      return;
+    }
+    ctx.body = await strapi.plugin('send-mail').service('service').getUnsentByGroup(groupId);
+  },
+
+  // ── Campaigns ─────────────────────────────────────────────────────────────
+
+  async getCampaigns(ctx) {
+    ctx.body = await strapi.plugin('send-mail').service('service').getCampaigns();
+  },
+
+  async retryCampaign(ctx) {
+    const { campaignId } = ctx.params;
+    if (!campaignId) {
+      ctx.status = 400;
+      ctx.body = { error: { message: 'campaignId is required' } };
+      return;
+    }
+    try {
+      ctx.body = await strapi.plugin('send-mail').service('service').retryCampaign(campaignId);
+    } catch (err) {
+      ctx.status = 400;
+      ctx.body = { error: { message: err.message ?? 'Retry failed' } };
     }
   },
 
