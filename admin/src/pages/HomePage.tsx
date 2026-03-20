@@ -51,7 +51,7 @@ const HomePage = () => {
   const { get, post } = useFetchClient();
   const { toggleNotification } = useNotification();
 
-  // ── Existing send state (unchanged) ──────────────────────────────────────
+  // ── Send state (unchanged) ────────────────────────────────────────────────
   const [groups, setGroups] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [groupId, setGroupId] = useState<string>('');
@@ -65,11 +65,16 @@ const HomePage = () => {
   const [savedSettings, setSavedSettings] = useState<PluginSettings>(DEFAULT_SETTINGS);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
+
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [loadingCollections, setLoadingCollections] = useState(true);
+  const [collectionsError, setCollectionsError] = useState(false);
+
   const [fields, setFields] = useState<CollectionField[]>([]);
   const [loadingFields, setLoadingFields] = useState(false);
+  const [fieldsError, setFieldsError] = useState(false);
 
-  // ── Existing effects (unchanged) ─────────────────────────────────────────
+  // ── Existing send effect (unchanged) ─────────────────────────────────────
   useEffect(() => {
     get('/send-mail/groups')
       .then(({ data }) => setGroups(data))
@@ -79,7 +84,7 @@ const HomePage = () => {
       .catch(() => {});
   }, []);
 
-  // ── Settings effects ──────────────────────────────────────────────────────
+  // ── Load settings + collections on mount ─────────────────────────────────
   useEffect(() => {
     get('/send-mail/settings')
       .then(({ data }) => {
@@ -87,23 +92,41 @@ const HomePage = () => {
         setSettings(s);
         setSavedSettings(s);
       })
-      .catch(() => {});
+      .catch(() => {
+        // Leave defaults in place — fields will still load for api::subscriber
+      });
 
+    setLoadingCollections(true);
     get('/send-mail/collections')
-      .then(({ data }) => setCollections(data ?? []))
-      .catch(() => {});
+      .then(({ data }) => {
+        setCollections(data ?? []);
+        setCollectionsError(false);
+      })
+      .catch(() => setCollectionsError(true))
+      .finally(() => setLoadingCollections(false));
   }, []);
 
+  // ── Reload fields whenever collection changes ─────────────────────────────
   useEffect(() => {
-    if (!settings.collection) return;
+    if (!settings.collection) {
+      setFields([]);
+      return;
+    }
     setLoadingFields(true);
+    setFieldsError(false);
     get(`/send-mail/collections/${encodeURIComponent(settings.collection)}/fields`)
-      .then(({ data }) => setFields(data ?? []))
-      .catch(() => setFields([]))
+      .then(({ data }) => {
+        setFields(data ?? []);
+        setFieldsError(false);
+      })
+      .catch(() => {
+        setFields([]);
+        setFieldsError(true);
+      })
       .finally(() => setLoadingFields(false));
   }, [settings.collection]);
 
-  // ── Existing send handler (unchanged) ─────────────────────────────────────
+  // ── Send handler (unchanged) ──────────────────────────────────────────────
   const handleSend = async () => {
     setLoading(true);
     setStatus(null);
@@ -157,6 +180,9 @@ const HomePage = () => {
   const activeValueOptions: string[] =
     fields.find((f) => f.name === settings.statusField)?.enum ?? [];
 
+  // Whether the saved collection actually exists in the available list
+  const savedCollectionExists = collections.some((c) => c.uid === savedSettings.collection);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Box padding={8} background="neutral100">
@@ -170,7 +196,7 @@ const HomePage = () => {
           <Tabs.Trigger value="settings">Settings{settingsDirty ? ' ●' : ''}</Tabs.Trigger>
         </Tabs.List>
 
-        {/* ── SEND TAB — original UI, completely unchanged ─────────────── */}
+        {/* ── SEND TAB ─────────────────────────────────────────────────── */}
         <Tabs.Content value="send">
           <Box paddingTop={6}>
             <Box
@@ -180,6 +206,18 @@ const HomePage = () => {
               hasRadius
               style={{ maxWidth: 480 }}
             >
+              {/* Warn if the saved collection no longer exists */}
+              {!loadingCollections && !savedCollectionExists && (
+                <Box paddingBottom={4}>
+                  <Alert variant="caution" title="Subscriber collection not found">
+                    <Typography variant="pi">
+                      <strong>{savedSettings.collection}</strong> does not exist in this Strapi
+                      instance. Go to Settings to choose a valid collection before sending.
+                    </Typography>
+                  </Alert>
+                </Box>
+              )}
+
               <Box paddingBottom={4}>
                 <Field.Root name="group">
                   <Field.Label>Recipient Group</Field.Label>
@@ -214,7 +252,12 @@ const HomePage = () => {
               </Box>
               <Button
                 onClick={handleSend}
-                disabled={!groupId || !templateId || loading}
+                disabled={
+                  !groupId ||
+                  !templateId ||
+                  loading ||
+                  (!loadingCollections && !savedCollectionExists)
+                }
                 loading={loading}
                 size="L"
                 fullWidth
@@ -268,118 +311,147 @@ const HomePage = () => {
                 </Button>
               </Flex>
 
-              {/* Collection picker */}
-              <Box paddingBottom={4}>
-                <Field.Root name="collection">
-                  <Field.Label>Collection</Field.Label>
-                  <SingleSelect
-                    placeholder="Select a collection..."
-                    value={settings.collection}
-                    onChange={(val: string) => updateSetting('collection', val)}
-                  >
-                    {collections.map((c) => (
-                      <SingleSelectOption key={c.uid} value={c.uid}>
-                        {c.displayName}
-                      </SingleSelectOption>
-                    ))}
-                  </SingleSelect>
-                </Field.Root>
-              </Box>
-
-              {loadingFields && (
+              {/* Collections loading / error / empty states */}
+              {loadingCollections ? (
                 <Flex justifyContent="center" padding={4}>
-                  <Loader small>Loading fields…</Loader>
+                  <Loader small>Loading collections…</Loader>
                 </Flex>
+              ) : collectionsError ? (
+                <Alert variant="danger" title="Could not load collections">
+                  Check that the Strapi server is running and try refreshing.
+                </Alert>
+              ) : collections.length === 0 ? (
+                <Alert variant="caution" title="No collections found">
+                  No <code>api::</code> content types were found. Create a collection type in the
+                  Content-Type Builder first, then return here to configure it as the subscriber
+                  source.
+                </Alert>
+              ) : (
+                <>
+                  {/* Collection picker */}
+                  <Box paddingBottom={4}>
+                    <Field.Root name="collection">
+                      <Field.Label>Collection</Field.Label>
+                      <SingleSelect
+                        placeholder="Select a collection..."
+                        value={settings.collection}
+                        onChange={(val: string) => updateSetting('collection', val)}
+                      >
+                        {collections.map((c) => (
+                          <SingleSelectOption key={c.uid} value={c.uid}>
+                            {c.displayName}
+                          </SingleSelectOption>
+                        ))}
+                      </SingleSelect>
+                    </Field.Root>
+                  </Box>
+
+                  {/* Fields loading / error / empty states */}
+                  {loadingFields ? (
+                    <Flex justifyContent="center" padding={4}>
+                      <Loader small>Loading fields…</Loader>
+                    </Flex>
+                  ) : fieldsError ? (
+                    <Box paddingBottom={4}>
+                      <Alert variant="caution" title="Could not load fields">
+                        The selected collection (<strong>{settings.collection}</strong>) could not
+                        be introspected. It may not exist yet — save the collection choice first,
+                        then reload.
+                      </Alert>
+                    </Box>
+                  ) : fields.length === 0 && settings.collection ? (
+                    <Box paddingBottom={4}>
+                      <Alert variant="caution" title="No mappable fields found">
+                        This collection has no string, email, text, UID, or enumeration fields. Add
+                        fields in the Content-Type Builder and rebuild.
+                      </Alert>
+                    </Box>
+                  ) : fields.length > 0 ? (
+                    <Grid.Root gap={4}>
+                      <Grid.Item col={6}>
+                        <Field.Root name="emailField">
+                          <Field.Label>Email Field</Field.Label>
+                          <SingleSelect
+                            placeholder="Select field..."
+                            value={settings.emailField}
+                            onChange={(val: string) => updateSetting('emailField', val)}
+                          >
+                            {scalarFields.map((f) => (
+                              <SingleSelectOption key={f.name} value={f.name}>
+                                {f.name}
+                              </SingleSelectOption>
+                            ))}
+                          </SingleSelect>
+                        </Field.Root>
+                      </Grid.Item>
+
+                      <Grid.Item col={6}>
+                        <Field.Root name="tokenField">
+                          <Field.Label>Unsubscribe Token Field</Field.Label>
+                          <SingleSelect
+                            placeholder="Select field..."
+                            value={settings.tokenField}
+                            onChange={(val: string) => updateSetting('tokenField', val)}
+                          >
+                            {scalarFields.map((f) => (
+                              <SingleSelectOption key={f.name} value={f.name}>
+                                {f.name}
+                              </SingleSelectOption>
+                            ))}
+                          </SingleSelect>
+                        </Field.Root>
+                      </Grid.Item>
+
+                      <Grid.Item col={6}>
+                        <Field.Root name="statusField">
+                          <Field.Label>Status Field</Field.Label>
+                          <SingleSelect
+                            placeholder="Select field..."
+                            value={settings.statusField}
+                            onChange={(val: string) => updateSetting('statusField', val)}
+                          >
+                            {fields.map((f) => (
+                              <SingleSelectOption key={f.name} value={f.name}>
+                                {f.name}
+                              </SingleSelectOption>
+                            ))}
+                          </SingleSelect>
+                        </Field.Root>
+                      </Grid.Item>
+
+                      <Grid.Item col={6}>
+                        <Field.Root name="activeValue">
+                          <Field.Label>Active Status Value</Field.Label>
+                          {activeValueOptions.length > 0 ? (
+                            <SingleSelect
+                              placeholder="Select value..."
+                              value={settings.activeValue}
+                              onChange={(val: string) => updateSetting('activeValue', val)}
+                            >
+                              {activeValueOptions.map((v) => (
+                                <SingleSelectOption key={v} value={v}>
+                                  {v}
+                                </SingleSelectOption>
+                              ))}
+                            </SingleSelect>
+                          ) : (
+                            <TextInput
+                              placeholder="e.g. active"
+                              value={settings.activeValue}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                updateSetting('activeValue', e.target.value)
+                              }
+                            />
+                          )}
+                        </Field.Root>
+                      </Grid.Item>
+                    </Grid.Root>
+                  ) : null}
+                </>
               )}
 
-              {!loadingFields && fields.length > 0 && (
-                <Grid.Root gap={4}>
-                  {/* Email field */}
-                  <Grid.Item col={6}>
-                    <Field.Root name="emailField">
-                      <Field.Label>Email Field</Field.Label>
-                      <SingleSelect
-                        placeholder="Select field..."
-                        value={settings.emailField}
-                        onChange={(val: string) => updateSetting('emailField', val)}
-                      >
-                        {scalarFields.map((f) => (
-                          <SingleSelectOption key={f.name} value={f.name}>
-                            {f.name}
-                          </SingleSelectOption>
-                        ))}
-                      </SingleSelect>
-                    </Field.Root>
-                  </Grid.Item>
-
-                  {/* Token field */}
-                  <Grid.Item col={6}>
-                    <Field.Root name="tokenField">
-                      <Field.Label>Unsubscribe Token Field</Field.Label>
-                      <SingleSelect
-                        placeholder="Select field..."
-                        value={settings.tokenField}
-                        onChange={(val: string) => updateSetting('tokenField', val)}
-                      >
-                        {scalarFields.map((f) => (
-                          <SingleSelectOption key={f.name} value={f.name}>
-                            {f.name}
-                          </SingleSelectOption>
-                        ))}
-                      </SingleSelect>
-                    </Field.Root>
-                  </Grid.Item>
-
-                  {/* Status field */}
-                  <Grid.Item col={6}>
-                    <Field.Root name="statusField">
-                      <Field.Label>Status Field</Field.Label>
-                      <SingleSelect
-                        placeholder="Select field..."
-                        value={settings.statusField}
-                        onChange={(val: string) => updateSetting('statusField', val)}
-                      >
-                        {fields.map((f) => (
-                          <SingleSelectOption key={f.name} value={f.name}>
-                            {f.name}
-                          </SingleSelectOption>
-                        ))}
-                      </SingleSelect>
-                    </Field.Root>
-                  </Grid.Item>
-
-                  {/* Active value — dropdown if enum, free text otherwise */}
-                  <Grid.Item col={6}>
-                    <Field.Root name="activeValue">
-                      <Field.Label>Active Status Value</Field.Label>
-                      {activeValueOptions.length > 0 ? (
-                        <SingleSelect
-                          placeholder="Select value..."
-                          value={settings.activeValue}
-                          onChange={(val: string) => updateSetting('activeValue', val)}
-                        >
-                          {activeValueOptions.map((v) => (
-                            <SingleSelectOption key={v} value={v}>
-                              {v}
-                            </SingleSelectOption>
-                          ))}
-                        </SingleSelect>
-                      ) : (
-                        <TextInput
-                          placeholder="e.g. active"
-                          value={settings.activeValue}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            updateSetting('activeValue', e.target.value)
-                          }
-                        />
-                      )}
-                    </Field.Root>
-                  </Grid.Item>
-                </Grid.Root>
-              )}
-
-              {/* Read-only summary of what's currently saved */}
-              {!settingsDirty && (
+              {/* Read-only summary of saved config */}
+              {!settingsDirty && !loadingCollections && !collectionsError && (
                 <Box background="neutral100" padding={4} hasRadius marginTop={6}>
                   <Typography variant="sigma" textColor="neutral600">
                     Active config
