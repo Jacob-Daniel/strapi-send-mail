@@ -13,8 +13,11 @@ A [Strapi v5](https://strapi.io) plugin for sending batch emails to subscriber g
 - Send batch emails from the Strapi admin UI
 - Target subscriber groups with many-to-many relations
 - Rich-text email templates using Strapi's native blocks editor
-- 🖼Optional banner image per template
+- 🖼 Optional banner image per template
 - Batched sending with configurable batch size and delay
+- **Choose any Strapi collection as your subscriber source** — no hard dependency on `api::subscriber`
+- **Map fields visually** — pick which field is the email address, status, active value, and unsubscribe token
+- Settings persisted in Strapi's plugin store (survive restarts)
 - Uses your existing Strapi email plugin (Sendgrid, SMTP, etc.)
 
 ---
@@ -29,11 +32,13 @@ A [Strapi v5](https://strapi.io) plugin for sending batch emails to subscriber g
 ## Installation
 
 Clone or download the plugin into your Strapi project:
+
 ```bash
 git clone https://github.com/Jacob-Daniel/strapi-send-mail.git src/plugins/send-mail
 ```
 
 Then register it in your Strapi config:
+
 ```ts
 // config/plugins.ts
 export default {
@@ -48,55 +53,79 @@ export default {
 
 ## Content Types
 
-This plugin expects the following content types to exist in your Strapi project.
-
-### `api::subscriber.subscriber`
-
-| Field | Type | Notes |
-|---|---|---|
-| `email` | Email | Required, unique |
-| `subscribedStatus` | Enumeration | `active`, `unsubscribed`, `bounced` |
-| `subscribedAt` | Datetime | |
-| `unsubscribedAt` | Datetime | |
-| `groups` | Relation (manyToMany) | mapped by `subscribers` on subscriber-group |
+The plugin requires two content types to always be present in your project (these are for grouping and templates). The **subscriber collection** is now configurable — see [Settings](#settings).
 
 ### `api::subscriber-group.subscriber-group`
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | String | Required |
-| `description` | Text | |
-| `subscribers` | Relation (manyToMany) | inversedBy `groups` on subscriber |
+| Field         | Type                  | Notes                                |
+| ------------- | --------------------- | ------------------------------------ |
+| `name`        | String                | Required                             |
+| `description` | Text                  |                                      |
+| `subscribers` | Relation (manyToMany) | inversedBy the configured collection |
 
 ### `api::email-template.email-template`
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | String | Required |
-| `subject` | String | Required |
-| `body` | Blocks (rich text) | Supports headings, paragraphs, lists, quotes, inline images |
-| `banner` | Media (single image) | Optional — prepended above body |
+| Field     | Type                 | Notes                                                       |
+| --------- | -------------------- | ----------------------------------------------------------- |
+| `name`    | String               | Required                                                    |
+| `subject` | String               | Required                                                    |
+| `body`    | Blocks (rich text)   | Supports headings, paragraphs, lists, quotes, inline images |
+| `banner`  | Media (single image) | Optional — prepended above body                             |
+
+### Default subscriber collection: `api::subscriber.subscriber`
+
+If you keep the default, the plugin expects:
+
+| Field              | Type                  | Notes                                       |
+| ------------------ | --------------------- | ------------------------------------------- |
+| `email`            | Email                 | Required, unique                            |
+| `subscribedStatus` | Enumeration           | `active`, `unsubscribed`, `bounced`         |
+| `subscribedAt`     | Datetime              |                                             |
+| `unsubscribedAt`   | Datetime              |                                             |
+| `unsubscribeToken` | String                | Managed by the plugin                       |
+| `groups`           | Relation (manyToMany) | mapped by `subscribers` on subscriber-group |
+
+---
+
+## Settings
+
+Navigate to **Send Mail → Settings** in the admin sidebar to configure:
+
+| Setting                     | Description                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| **Subscriber Collection**   | Any `api::*` collection in your project                                                    |
+| **Email Field**             | The field holding the recipient's email address                                            |
+| **Status Field**            | Field used to filter active vs inactive subscribers                                        |
+| **Active Status Value**     | Records matching this value will receive email. Enum fields show a dropdown automatically. |
+| **Unsubscribe Token Field** | Field used to store and look up the per-subscriber unsubscribe token                       |
+
+Settings are stored in Strapi's plugin store and persist across restarts. Changing the collection does **not** migrate data — it only changes which collection the plugin reads from.
 
 ---
 
 ## Usage
 
-1. Create subscriber groups and add subscribers via the Strapi admin
-2. Create an email template with a subject and rich-text body
-3. Navigate to **Send Mail** in the admin sidebar
-4. Select a recipient group and a template
-5. Click **Send Emails**
+1. Open **Send Mail → Settings**, pick your subscriber collection and map its fields
+2. Create subscriber groups and associate subscriber records via the Strapi admin
+3. Create an email template with a subject and rich-text body
+4. Navigate to **Send Mail → Send**
+5. Select a recipient group and a template, then click **Send Emails**
 
-The plugin will send to all `active` subscribers in the selected group, in batches of 50 with a 1 second delay between batches.
+The plugin will send to all subscribers in the selected group where the status field matches the configured active value, in batches of 50 with a 1-second delay between batches.
 
 ---
 
 ## How It Works
 
 ```
+Admin UI
+  → Settings: pick collection + field mappings (stored in plugin store)
+
 Admin UI → POST /send-mail/send { groupId, templateId }
+         → Load settings from store
          → Fetch template (subject + blocks body)
-         → Fetch group → filter active subscribers
+         → Fetch group → filter subscribers where statusField = activeValue
+         → Ensure each subscriber has an unsubscribe token (generate if missing)
          → Render blocks to HTML
          → Batch send via strapi email plugin
          → Return { sent, failed, errors[] }
@@ -112,27 +141,31 @@ Email HTML is rendered from Strapi's native blocks format, supporting:
 
 ---
 
-## Configuration
+## Admin Routes
 
-No additional configuration is required beyond enabling the plugin. The plugin uses your existing `@strapi/plugin-email` configuration.
+| Method | Path                                 | Description                             |
+| ------ | ------------------------------------ | --------------------------------------- |
+| GET    | `/send-mail/groups`                  | List all subscriber groups              |
+| GET    | `/send-mail/templates`               | List all email templates                |
+| POST   | `/send-mail/send`                    | Send emails to a group                  |
+| GET    | `/send-mail/settings`                | Get current plugin settings             |
+| POST   | `/send-mail/settings`                | Save plugin settings                    |
+| GET    | `/send-mail/collections`             | List all available `api::*` collections |
+| GET    | `/send-mail/collections/:uid/fields` | List scalar fields for a collection     |
 
-To set the base URL for resolving image paths from Strapi blocks, set the following in your environment:
-
-```env
-STRAPI_UPLOADS_URL=https://your-strapi-domain.com
-```
+All routes are admin-only and require an authenticated Strapi admin session.
 
 ---
 
-## Admin Routes
+## Environment Variables
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/send-mail/groups` | List all subscriber groups |
-| GET | `/send-mail/templates` | List all email templates |
-| POST | `/send-mail/send` | Send emails to a group |
+```env
+# Base URL for resolving Strapi media URLs in email bodies
+PUBLIC_URL=https://your-strapi-domain.com
 
-All routes are admin-only and require an authenticated Strapi admin session.
+# Base URL for unsubscribe and privacy links in emails
+FRONTEND_URL=https://your-frontend-domain.com
+```
 
 ---
 

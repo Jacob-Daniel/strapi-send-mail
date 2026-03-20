@@ -11,6 +11,7 @@ const config = {
 };
 const contentTypes = {};
 const controller = ({ strapi }) => ({
+  // ── Existing ──────────────────────────────────────────────────────────────
   async getGroups(ctx) {
     ctx.body = await strapi.plugin("send-mail").service("service").getGroups();
   },
@@ -39,6 +40,32 @@ const controller = ({ strapi }) => ({
       ctx.status = 400;
       ctx.body = { error: { message: err.message ?? "Unsubscribe failed" } };
     }
+  },
+  // ── Settings ──────────────────────────────────────────────────────────────
+  async getSettings(ctx) {
+    ctx.body = await strapi.plugin("send-mail").service("service").getSettings();
+  },
+  async saveSettings(ctx) {
+    const settings = ctx.request.body;
+    if (!settings || typeof settings !== "object") {
+      ctx.status = 400;
+      ctx.body = { error: { message: "Settings body is required" } };
+      return;
+    }
+    ctx.body = await strapi.plugin("send-mail").service("service").saveSettings(settings);
+  },
+  // ── Collection introspection ──────────────────────────────────────────────
+  async getCollections(ctx) {
+    ctx.body = await strapi.plugin("send-mail").service("service").getCollections();
+  },
+  async getCollectionFields(ctx) {
+    const { uid } = ctx.params;
+    if (!uid) {
+      ctx.status = 400;
+      ctx.body = { error: { message: "Collection uid is required" } };
+      return;
+    }
+    ctx.body = await strapi.plugin("send-mail").service("service").getCollectionFields(decodeURIComponent(uid));
   }
 });
 const controllers = {
@@ -65,6 +92,48 @@ const adminAPIRoutes = {
       method: "POST",
       path: "/send",
       handler: "controller.send",
+      config: { policies: [] }
+    },
+    {
+      method: "GET",
+      path: "/groups",
+      handler: "controller.getGroups",
+      config: { policies: [] }
+    },
+    {
+      method: "GET",
+      path: "/templates",
+      handler: "controller.getTemplates",
+      config: { policies: [] }
+    },
+    {
+      method: "POST",
+      path: "/send",
+      handler: "controller.send",
+      config: { policies: [] }
+    },
+    {
+      method: "GET",
+      path: "/settings",
+      handler: "controller.getSettings",
+      config: { policies: [] }
+    },
+    {
+      method: "POST",
+      path: "/settings",
+      handler: "controller.saveSettings",
+      config: { policies: [] }
+    },
+    {
+      method: "GET",
+      path: "/collections",
+      handler: "controller.getCollections",
+      config: { policies: [] }
+    },
+    {
+      method: "GET",
+      path: "/collections/:uid/fields",
+      handler: "controller.getCollectionFields",
       config: { policies: [] }
     }
   ]
@@ -218,65 +287,107 @@ function renderBlocksToHtml(blocks, privacyUrl, bannerUrl, unsubscribeUrl) {
 </body>
 </html>`.trim();
 }
-const service = ({ strapi }) => ({
-  async generateToken(documentId) {
+const DEFAULT_SETTINGS = {
+  collection: "api::subscriber.subscriber",
+  emailField: "email",
+  statusField: "subscribedStatus",
+  activeValue: "active",
+  tokenField: "unsubscribeToken"
+};
+const service = ({ strapi }) => {
+  async function getSettings() {
+    const store = strapi.store({ type: "plugin", name: "send-mail" });
+    const saved = await store.get({ key: "settings" });
+    return { ...DEFAULT_SETTINGS, ...saved ?? {} };
+  }
+  async function saveSettings(settings) {
+    const current = await getSettings();
+    const merged = { ...current, ...settings };
+    const store = strapi.store({ type: "plugin", name: "send-mail" });
+    await store.set({ key: "settings", value: merged });
+    return merged;
+  }
+  async function generateToken(documentId) {
     const { randomUUID } = await import("crypto");
     const token = randomUUID();
-    await strapi.documents("api::subscriber.subscriber").update({
+    const { collection, tokenField } = await getSettings();
+    await strapi.documents(collection).update({
       documentId,
-      data: { unsubscribeToken: token }
+      data: { [tokenField]: token }
     });
     return token;
-  },
-  async unsubscribe(token) {
-    const results = await strapi.documents("api::subscriber.subscriber").findMany({
-      filters: { unsubscribeToken: { $eq: token } },
+  }
+  async function unsubscribe(token) {
+    const { collection, tokenField, statusField } = await getSettings();
+    const results = await strapi.documents(collection).findMany({
+      filters: { [tokenField]: { $eq: token } },
       populate: ["groups"]
     });
     const subscriber = results[0];
     if (!subscriber) throw new Error("Invalid unsubscribe token");
-    if (subscriber.subscribedStatus === "unsubscribed") {
+    if (subscriber[statusField] === "unsubscribed") {
       strapi.log.info(`[send-mail] Already unsubscribed: ${subscriber.email}`);
       return { alreadyUnsubscribed: true };
     }
-    await strapi.documents("api::subscriber.subscriber").update({
+    await strapi.documents(collection).update({
       documentId: subscriber.documentId,
       data: {
-        subscribedStatus: "unsubscribed",
+        [statusField]: "unsubscribed",
         unsubscribedAt: (/* @__PURE__ */ new Date()).toISOString(),
         groups: []
       }
     });
     strapi.log.info(`[send-mail] Unsubscribed: ${subscriber.email}`);
     return { alreadyUnsubscribed: false };
-  },
-  async getGroups() {
+  }
+  async function getGroups() {
+    const { collection, emailField, tokenField, statusField, activeValue } = await getSettings();
     const groups = await strapi.documents("api::subscriber-group.subscriber-group").findMany({
       populate: {
         subscribers: {
-          filters: { subscribedStatus: { $eq: "active" } },
-          fields: ["email", "unsubscribeToken"]
+          filters: { [statusField]: { $eq: activeValue } },
+          fields: [emailField, tokenField]
         }
       }
     });
     return groups;
-  },
-  async getTemplates() {
+  }
+  async function getTemplates() {
     return strapi.documents("api::email-template.email-template").findMany({
       fields: ["name", "subject"]
     });
-  },
-  async send({ groupId, templateId }) {
+  }
+  async function getCollections() {
+    const contentTypes2 = strapi.contentTypes;
+    return Object.keys(contentTypes2).filter((uid) => uid.startsWith("api::")).map((uid) => ({
+      uid,
+      displayName: contentTypes2[uid]?.info?.displayName ?? uid.split(".").pop() ?? uid
+    })).sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }
+  async function getCollectionFields(collectionUid) {
+    const contentType = strapi.contentTypes[collectionUid];
+    if (!contentType) throw new Error(`Collection not found: ${collectionUid}`);
+    const SCALAR_TYPES = ["string", "email", "text", "enumeration", "uid"];
+    const fields = Object.entries(contentType.attributes).filter(([, attr]) => SCALAR_TYPES.includes(attr.type)).map(([name, attr]) => ({
+      name,
+      type: attr.type,
+      enum: attr.enum ?? null
+    }));
+    return fields;
+  }
+  async function send({ groupId, templateId }) {
+    const settings = await getSettings();
+    const { collection, emailField, tokenField, statusField, activeValue } = settings;
     const template = await strapi.documents("api::email-template.email-template").findOne({ documentId: templateId, populate: ["banner"] });
-    const bannerUrl = template.banner?.url ? `${(process.env.PUBLIC_URL || "").replace(/\/$/, "")}${template.banner.url}` : void 0;
     if (!template) throw new Error(`Template not found: ${templateId}`);
     if (!template.body) throw new Error(`Template body is empty`);
+    const bannerUrl = template.banner?.url ? `${(process.env.PUBLIC_URL || "").replace(/\/$/, "")}${template.banner.url}` : void 0;
     const group = await strapi.documents("api::subscriber-group.subscriber-group").findOne({
       documentId: groupId,
       populate: {
         subscribers: {
-          filters: { subscribedStatus: { $eq: "active" } },
-          fields: ["email"]
+          filters: { [statusField]: { $eq: activeValue } },
+          fields: [emailField, tokenField, "documentId"]
         }
       }
     });
@@ -288,11 +399,11 @@ const service = ({ strapi }) => ({
     }
     const subscribersWithTokens = await Promise.all(
       subscribers.map(async (subscriber) => {
-        let token = subscriber.unsubscribeToken;
+        let token = subscriber[tokenField];
         if (!token) {
-          token = await strapi.plugin("send-mail").service("service").generateToken(subscriber.documentId);
+          token = await generateToken(subscriber.documentId);
         }
-        return { ...subscriber, unsubscribeToken: token };
+        return { ...subscriber, _token: token, _email: subscriber[emailField] };
       })
     );
     const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
@@ -304,7 +415,7 @@ const service = ({ strapi }) => ({
       await Promise.all(
         batch.map(async (subscriber) => {
           try {
-            const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber.unsubscribeToken}`;
+            const unsubUrl = `${frontendUrl}/unsubscribe?token=${subscriber._token}`;
             const privacyUrl = `${frontendUrl}/privacy`;
             const renderedHtml = renderBlocksToHtml(
               template.body,
@@ -313,15 +424,15 @@ const service = ({ strapi }) => ({
               unsubUrl
             );
             await strapi.plugins["email"].services.email.send({
-              to: subscriber.email,
+              to: subscriber._email,
               subject: template.subject,
               html: renderedHtml
             });
             results.sent++;
           } catch (err) {
-            strapi.log.error(`[send-mail] Failed to send to ${subscriber.email}: ${err.message}`);
+            strapi.log.error(`[send-mail] Failed to send to ${subscriber._email}: ${err.message}`);
             results.failed++;
-            results.errors.push(subscriber.email);
+            results.errors.push(subscriber._email);
           }
         })
       );
@@ -332,7 +443,18 @@ const service = ({ strapi }) => ({
     strapi.log.info(`[send-mail] Done. Sent: ${results.sent}, Failed: ${results.failed}`);
     return results;
   }
-});
+  return {
+    getSettings,
+    saveSettings,
+    generateToken,
+    unsubscribe,
+    getGroups,
+    getTemplates,
+    getCollections,
+    getCollectionFields,
+    send
+  };
+};
 const services = {
   service
 };
