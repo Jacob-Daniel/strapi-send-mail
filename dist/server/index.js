@@ -613,7 +613,11 @@ const service = ({ strapi }) => {
             await strapi.plugins["email"].services.email.send({
               to: row.email,
               subject: tpl.subject,
-              html: renderedHtml
+              html: renderedHtml,
+              headers: {
+                "List-Unsubscribe": `<${unsubUrl}>`,
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+              }
             });
             await strapi.documents("api::email-send-queue.email-send-queue").update({
               documentId: row.documentId,
