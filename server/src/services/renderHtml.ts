@@ -1,3 +1,5 @@
+import renderPreFooter, { type CampsiteData } from './renderPreFooter';
+
 function renderChildren(children: any[]): string {
   if (!children) return '';
   return children
@@ -25,7 +27,8 @@ export default function renderBlocksToHtml(
   blocks: any[],
   privacyUrl: string,
   bannerUrl?: string,
-  unsubscribeUrl?: string
+  unsubscribeUrl?: string,
+  campsite?: CampsiteData
 ): string {
   if (!Array.isArray(blocks)) return '';
 
@@ -123,6 +126,8 @@ export default function renderBlocksToHtml(
               ${body}
             </td>
           </tr>
+          
+          ${campsite ? renderPreFooter(campsite) : ''}
 
           <!-- Footer -->
           <tr>

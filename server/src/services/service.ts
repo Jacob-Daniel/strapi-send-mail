@@ -316,6 +316,10 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
       .documents('api::email-template.email-template')
       .findOne({ documentId: campaign.templateDocumentId, populate: ['banner'] });
 
+    const campsiteResult = await strapi.documents('api::campsite.campsite').findFirst({
+      populate: ['general', 'contact', 'social'],
+    });
+
     if (!tpl?.body) {
       strapi.log.error(
         `[send-mail] Campaign ${campaign.documentId} — template body not found, skipping`
@@ -354,7 +358,8 @@ const service = ({ strapi }: { strapi: Core.Strapi }): Record<string, (...args: 
               tpl.body as any[],
               privacyUrl,
               bannerUrl,
-              unsubUrl
+              unsubUrl,
+              campsiteResult ?? undefined
             );
 
             await strapi.plugins['email'].services.email.send({
